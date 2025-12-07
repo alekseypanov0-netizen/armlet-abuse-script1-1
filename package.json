@@ -1,13 +1,7 @@
 {
-  "name": "auto-armlet",
+  "name": "armlet-abuse",
   "version": "1.0.0",
-  "description": "Auto Armlet toggle script for Dota 2 using Octarine",
-  "main": "src/index.ts",
-  "scripts": {
-    "build": "tsc"
-  },
-  "dependencies": {},
-  "devDependencies": {
-    "typescript": "^4.0.0"
-  }
+  "description": "Armlet abuse script for Octarine",
+  "main": "src/armlet_abuse.lua",
+  "scripts": {}
 }

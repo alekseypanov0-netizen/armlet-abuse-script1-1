@@ -1,0 +1,13 @@
+{
+  "name": "auto-armlet",
+  "version": "1.0.0",
+  "description": "Auto Armlet toggle script for Dota 2 using Octarine",
+  "main": "src/index.ts",
+  "scripts": {
+    "build": "tsc"
+  },
+  "dependencies": {},
+  "devDependencies": {
+    "typescript": "^4.0.0"
+  }
+}

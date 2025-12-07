@@ -1,151 +1,143 @@
-import Utility from "Utility"; // Assuming Utility is a module; adjust if global
+local Utility = require("Utility")
+local Armlet = {}
+local option = Menu.AddOption({"Utility"}, "Armlet Abuse", "On/Off")
+local optionFarmMode = Menu.AddOption({"Utility"}, "Armlet Farming Mode", "Toggle on armlet when farming (On/Off)")
+local safeThreshold = 550
+local dangerousThreshold = 100
+local lasttime = GameRules.GetGameTime()
+local msg_queue = {}
 
-const Armlet = {};
+-- List of dangerous DoT modifiers to monitor (e.g., Urn of Shadows, Spirit Vessel, etc.)
+local dangerousModifiers = {
+"modifier_item_urn_damage",  -- Urn of Shadows damage
+"modifier_item_spirit_vessel_damage",  -- Spirit Vessel damage
+-- Add more if needed, like "modifier_ice_blast" for AA ult, etc.
+}
 
-const option = Menu.AddOption(["Item Specific", "Armlet"], "Auto Toggle", "On/Off");
-const optionFarmMode = Menu.AddOption(["Item Specific", "Armlet"], "Farming Mode", "Toggle on armlet when farming (On/Off)");
-const safeThreshold: number = 550;
-const dangerousThreshold: number = 100;
-let lasttime: number = GameRules.GetGameTime();
-const msg_queue: number[] = [];
+function Armlet.OnPrepareUnitOrders(orders)
+if not Menu.IsEnabled(option) then return true end
+if not orders then return true end
+local myHero = Heroes.GetLocal()
+if not myHero then return true end
+if not Utility.IsSuitableToUseItem(myHero) then return true end
+local item = NPC.GetItem(myHero, "item_armlet", true)
+if not item then return true end
+local current = GameRules.GetGameTime()
+-- toggle on armlet if about to attack
+if not Ability.GetToggleState(item) and (orders.order == Enum.UnitOrder.DOTA_UNIT_ORDER_ATTACK_MOVE or orders.order == Enum.UnitOrder.DOTA_UNIT_ORDER_ATTACK_TARGET) then
+-- disable auto farm mode if the option is turned off
+if not Menu.IsEnabled(optionFarmMode) and orders.target and NPC.IsCreep(orders.target) then
+return true
+end
+Ability.Toggle(item)
+lasttime = current
+end
+-- toggle off armlet if about to walk
+if Ability.GetToggleState(item) and Entity.GetHealth(myHero) >= safeThreshold and (orders.order == Enum.UnitOrder.DOTA_UNIT_ORDER_MOVE_TO_POSITION or orders.order == Enum.UnitOrder.DOTA_UNIT_ORDER_MOVE_TO_TARGET) then
+Ability.Toggle(item)
+lasttime = current
+end
+return true
+end
+function Armlet.OnUpdate()
+if not Menu.IsEnabled(option) then return end
+local myHero = Heroes.GetLocal()
+if not myHero then return end
+if not Utility.IsSuitableToUseItem(myHero) then return end
+local item = NPC.GetItem(myHero, "item_armlet", true)
+if not item then return end
+local current = GameRules.GetGameTime()
+if Entity.GetHealth(myHero) <= dangerousThreshold and current - lasttime > 0.6 then
+Armlet.Toggle()
+end
+if not msg_queue or #msg_queue <= 0 then return end
+local timestamp = table.remove(msg_queue, 1)
+local err = 0.05
+if math.abs(timestamp - current) <= err then
+Ability.Toggle(item)
+lasttime = current
+elseif timestamp > current + err then
+table.insert(msg_queue, timestamp)
+end
+end
+-- right click from range units (range creep, range hero, tower)
+function Armlet.OnProjectile(projectile)
+if not Menu.IsEnabled(option) then return end
+if not projectile or not projectile.source or not projectile.target then return end
+if not projectile.isAttack then return end
+local myHero = Heroes.GetLocal()
+if not myHero then return end
+if projectile.target ~= myHero then return end
+if Entity.IsSameTeam(projectile.source, myHero) then return end
+local true_damage = NPC.GetTrueDamage(projectile.source) * NPC.GetArmorDamageMultiplier(myHero)
+if true_damage + dangerousThreshold >= Entity.GetHealth(myHero) and Entity.GetHealth(myHero) > dangerousThreshold then
+Armlet.Toggle()
+end
+end
+-- right click from melee units
+function Armlet.OnUnitAnimation(animation)
+if not Menu.IsEnabled(option) then return end
+if not animation or not animation.sequenceName or not animation.unit then return end
+local myHero = Heroes.GetLocal()
+if not myHero then return end
+if Entity.IsSameTeam(animation.unit, myHero) then return end
+if NPC.IsRanged(animation.unit) then return end
+if not NPC.IsEntityInRange(myHero, animation.unit, 150) then return end
+local true_damage = NPC.GetTrueDamage(animation.unit) * NPC.GetArmorDamageMultiplier(myHero)
+if true_damage + dangerousThreshold >= Entity.GetHealth(myHero) and Entity.GetHealth(myHero) > dangerousThreshold then
+Armlet.Toggle()
+end
+end
+function Armlet.Toggle()
+local myHero = Heroes.GetLocal()
+if not myHero then return end
+local item = NPC.GetItem(myHero, "item_armlet", true)
+if not item then return end
+local current = GameRules.GetGameTime()
+if Ability.GetToggleState(item) then
+table.insert(msg_queue, current)
+table.insert(msg_queue, current+0.1)
+else
+table.insert(msg_queue, current)
+end
+end
+-- handler for modifier created to abuse DoT effects
+function Armlet.OnModifierCreate(modifier)
+if not Menu.IsEnabled(option) then return end
+local myHero = Heroes.GetLocal()
+if not myHero then return end
+if not modifier or not Entity.IsHero(modifier:GetParent()) or modifier:GetParent() ~= myHero then return end
 
-// List of dangerous DoT modifiers to monitor (e.g., Urn of Shadows, Spirit Vessel, etc.)
-const dangerousModifiers: string[] = [
-    "modifier_item_urn_damage",  // Urn of Shadows damage
-    "modifier_item_spirit_vessel_damage",  // Spirit Vessel damage
-    // Add more if needed, like "modifier_ice_blast" for AA ult, etc.
-];
+local modName = modifier:GetName()
+if not table.contains(dangerousModifiers, modName) then return end
 
-Armlet.OnPrepareUnitOrders = (orders: any): boolean => {
-    if (!Menu.IsEnabled(option)) return true;
-    if (!orders) return true;
-    const myHero = Heroes.GetLocal();
-    if (!myHero) return true;
-    if (!Utility.IsSuitableToUseItem(myHero)) return true;
-    const item = NPC.GetItem(myHero, "item_armlet", true);
-    if (!item) return true;
-    const current = GameRules.GetGameTime();
-    // toggle on armlet if about to attack
-    if (!Ability.GetToggleState(item) && (orders.order === Enum.UnitOrder.DOTA_UNIT_ORDER_ATTACK_MOVE || orders.order === Enum.UnitOrder.DOTA_UNIT_ORDER_ATTACK_TARGET)) {
-        // disable auto farm mode if the option is turned off
-        if (!Menu.IsEnabled(optionFarmMode) && orders.target && NPC.IsCreep(orders.target)) {
-            return true;
-        }
-        Ability.Toggle(item);
-        lasttime = current;
-    }
-    // toggle off armlet if about to walk
-    if (Ability.GetToggleState(item) && Entity.GetHealth(myHero) >= safeThreshold && (orders.order === Enum.UnitOrder.DOTA_UNIT_ORDER_MOVE_TO_POSITION || orders.order === Enum.UnitOrder.DOTA_UNIT_ORDER_MOVE_TO_TARGET)) {
-        Ability.Toggle(item);
-        lasttime = current;
-    }
-    return true;
-};
+-- Assuming we can get remaining time and tick period from modifier
+local remainingTime = modifier:GetRemainingTime()
+local elapsedTime = modifier:GetElapsedTime()
+local tickPeriod = 1.0  -- Assume 1 second for Urn/Vessel
 
-Armlet.OnUpdate = (): void => {
-    if (!Menu.IsEnabled(option)) return;
-    const myHero = Heroes.GetLocal();
-    if (!myHero) return;
-    if (!Utility.IsSuitableToUseItem(myHero)) return;
-    const item = NPC.GetItem(myHero, "item_armlet", true);
-    if (!item) return;
-    const current = GameRules.GetGameTime();
-    if (Entity.GetHealth(myHero) <= dangerousThreshold && current - lasttime > 0.6) {
-        Armlet.Toggle();
-    }
-    if (!msg_queue || msg_queue.length <= 0) return;
-    const timestamp = msg_queue.shift()!;
-    const err = 0.05;
-    if (Math.abs(timestamp - current) <= err) {
-        Ability.Toggle(item);
-        lasttime = current;
-    } else if (timestamp > current + err) {
-        msg_queue.push(timestamp);
-    }
-};
+local current = GameRules.GetGameTime()
+local timeSinceLastTick = elapsedTime % tickPeriod
+local timeToNextTick = tickPeriod - timeSinceLastTick
 
-// right click from range units (range creep, range hero, tower)
-Armlet.OnProjectile = (projectile: any): void => {
-    if (!Menu.IsEnabled(option)) return;
-    if (!projectile || !projectile.source || !projectile.target) return;
-    if (!projectile.isAttack) return;
-    const myHero = Heroes.GetLocal();
-    if (!myHero) return;
-    if (projectile.target !== myHero) return;
-    if (Entity.IsSameTeam(projectile.source, myHero)) return;
-    const true_damage = NPC.GetTrueDamage(projectile.source) * NPC.GetArmorDamageMultiplier(myHero);
-    if (true_damage + dangerousThreshold >= Entity.GetHealth(myHero) && Entity.GetHealth(myHero) > dangerousThreshold) {
-        Armlet.Toggle();
-    }
-};
+local approxTickDamage = 30  -- Placeholder
 
-// right click from melee units
-Armlet.OnUnitAnimation = (animation: any): void => {
-    if (!Menu.IsEnabled(option)) return;
-    if (!animation || !animation.sequenceName || !animation.unit) return;
-    const myHero = Heroes.GetLocal();
-    if (!myHero) return;
-    if (Entity.IsSameTeam(animation.unit, myHero)) return;
-    if (NPC.IsRanged(animation.unit)) return;
-    if (!NPC.IsEntityInRange(myHero, animation.unit, 150)) return;
-    const true_damage = NPC.GetTrueDamage(animation.unit) * NPC.GetArmorDamageMultiplier(myHero);
-    if (true_damage + dangerousThreshold >= Entity.GetHealth(myHero) && Entity.GetHealth(myHero) > dangerousThreshold) {
-        Armlet.Toggle();
-    }
-};
+if Entity.GetHealth(myHero) < 400 then
+local numTicksLeft = math.floor(remainingTime / tickPeriod)
+for i = 1, numTicksLeft do
+local tickTime = current + timeToNextTick + (i - 1) * tickPeriod
+table.insert(msg_queue, tickTime - 0.05)
+table.insert(msg_queue, tickTime + 0.05)
+end
+end
+end
 
-// New: Handler for modifier created to abuse DoT effects
-Armlet.OnModifierCreate = (modifier: any): void => {
-    if (!Menu.IsEnabled(option)) return;
-    const myHero = Heroes.GetLocal();
-    if (!myHero) return;
-    if (!modifier || !Entity.IsHero(modifier.GetParent()) || modifier.GetParent() !== myHero) return;
-    
-    const modName = modifier.GetName();
-    if (!dangerousModifiers.includes(modName)) return;
-    
-    // Assuming we can get remaining time and tick period from modifier
-    // Note: In real Dota scripting, you might need to hardcode tick periods as API may vary.
-    // For Urn/Spirit Vessel, tick every 1 second, damage per tick is fixed or based on stacks.
-    const remainingTime = modifier.GetRemainingTime();  // Total duration left
-    const elapsedTime = modifier.GetElapsedTime();  // Time since applied
-    const tickPeriod = 1.0;  // Assume 1 second for Urn/Vessel; adjust per modifier if needed
-    
-    // Calculate next tick time: DoTs usually tick immediately on apply, then every period.
-    // So next tick at current + (tickPeriod - (elapsedTime % tickPeriod))
-    const current = GameRules.GetGameTime();
-    const timeSinceLastTick = elapsedTime % tickPeriod;
-    const timeToNextTick = tickPeriod - timeSinceLastTick;
-    
-    // Estimate damage per tick (hardcode or calculate; for simplicity, assume we know approx)
-    // For Urn: 5% max HP over 8 sec, but actually it's flat + %; but for abuse, we check HP threshold.
-    const approxTickDamage = 30;  // Placeholder; in real script, use better estimation.
-    
-    // If current HP is low, schedule abuse toggles for each upcoming tick
-    if (Entity.GetHealth(myHero) < 400) {
-        const numTicksLeft = Math.floor(remainingTime / tickPeriod);
-        for (let i = 1; i <= numTicksLeft; i++) {
-            const tickTime = current + timeToNextTick + (i - 1) * tickPeriod;
-            // Schedule toggle ON just before tick (e.g., 0.05 sec before) to gain HP bonus
-            msg_queue.push(tickTime - 0.05);
-            // Schedule toggle OFF right after tick to minimize drain
-            msg_queue.push(tickTime + 0.05);
-        }
-    }
-};
+-- Helper function
+function table.contains(t, val)
+for _, v in ipairs(t) do
+if v == val then return true end
+end
+return false
+end
 
-Armlet.Toggle = (): void => {
-    const myHero = Heroes.GetLocal();
-    if (!myHero) return;
-    const item = NPC.GetItem(myHero, "item_armlet", true);
-    if (!item) return;
-    const current = GameRules.GetGameTime();
-    if (Ability.GetToggleState(item)) {
-        msg_queue.push(current);
-        msg_queue.push(current + 0.1);
-    } else {
-        msg_queue.push(current);
-    }
-};
-
-export default Armlet;
+return Armlet

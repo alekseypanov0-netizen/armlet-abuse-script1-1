@@ -5,7 +5,7 @@
 ## Установка
 - Добавьте репозиторий в Octarine через URL: https://github.com/твой_логин/auto-armlet
 
-## Меню
+## Менюf
 В Octarine скрипт появится в разделе "Item Specific" > "Armlet".
 - Auto Toggle: Вкл/Выкл
 - Farming Mode: Вкл армлет при фарме
